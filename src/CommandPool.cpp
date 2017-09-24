@@ -21,7 +21,7 @@ void CommandPool::Destroy()
 	vkDestroyCommandPool(m_device->device, commandPool, nullptr);
 }
 
-CommandPool::operator const VkCommandPool()
+CommandPool::operator const VkCommandPool() const
 {
 	return commandPool;
 }

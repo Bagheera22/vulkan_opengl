@@ -2,10 +2,14 @@
 
 //https://vulkan-tutorial.com/code/index_buffer.cpp
 
+//https://vulkan-tutorial.com/code/model_loading.cpp
+
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/hash.hpp>
 
 #include <iostream>
 #include <stdexcept>
@@ -25,23 +29,37 @@
 #include "Framebuffers.h"
 #include "CommandPool.h"
 #include "Vertex.h"
+#include "Buffer.h"
 
 
-const std::vector<Vertex> vertices = {
-	{ { -0.5f, -0.5f },{ 1.0f, 0.0f, 0.0f } },
-	{ { 0.5f, -0.5f },{ 0.0f, 1.0f, 0.0f } },
-	{ { 0.5f, 0.5f },{ 0.0f, 0.0f, 1.0f } },
-	{ { -0.5f, 0.5f },{ 1.0f, 1.0f, 1.0f } }
+
+
+class Semaphore
+{
+public:
+	void Create(const Device& device)
+	{
+		m_device = &device;
+		VkSemaphoreCreateInfo semaphoreInfo = {};
+		semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+		if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &m_semaphore) != VK_SUCCESS)
+		{
+			throw std::runtime_error("failed to create semaphores!");
+		}
+	}
+	operator const VkSemaphore() const
+	{
+		return m_semaphore;
+	}
+	void Destroy()
+	{
+		vkDestroySemaphore(*m_device, m_semaphore, nullptr);
+	}
+private:
+	VkSemaphore m_semaphore = 0;
+	const Device* m_device = nullptr;
 };
-
-const std::vector<uint16_t> indices = {
-	0, 1, 2, 2, 3, 0
-};
-
-
-
-
-
 
 
 
@@ -71,19 +89,14 @@ private:
 	GraphicsPipeline graphicsPipeline;
 	Framebuffers swapChainFramebuffers;
 	CommandPool commandPool;
+	std::unique_ptr<Buffer> vertexBuffer;
+	std::unique_ptr<Buffer> indexBuffer;
 
-
-
-
-	VkBuffer vertexBuffer;
-	VkDeviceMemory vertexBufferMemory;
-	VkBuffer indexBuffer;
-	VkDeviceMemory indexBufferMemory;
 
 	std::vector<VkCommandBuffer> commandBuffers;
 
-	VkSemaphore imageAvailableSemaphore;
-	VkSemaphore renderFinishedSemaphore;
+	Semaphore imageAvailableSemaphore;
+	Semaphore renderFinishedSemaphore;
 
 	void initWindow() {
 		window.InitGLF();
@@ -100,8 +113,19 @@ private:
 		commandPool.Create(device);
 
 
-		createVertexBuffer();
-		createIndexBuffer();
+		const std::vector<Vertex> vertices = {
+			{ { -0.5f, -0.5f },{ 1.0f, 0.0f, 0.0f } },
+			{ { 0.5f, -0.5f },{ 0.0f, 1.0f, 0.0f } },
+			{ { 0.5f, 0.5f },{ 0.0f, 0.0f, 1.0f } },
+			{ { -0.5f, 0.5f },{ 1.0f, 1.0f, 1.0f } }
+		};
+
+		const std::vector<uint16_t> indices = {
+			0, 1, 2, 2, 3, 0
+		};
+		vertexBuffer = std::make_unique<Buffer>(vertices, device, commandPool);
+		indexBuffer = std::make_unique<Buffer>(indices, device, commandPool);
+
 		createCommandBuffers();
 		//createCommandBuffers();
 
@@ -118,14 +142,11 @@ private:
 
 	void cleanup() {
 
-		vkDestroyBuffer(device, indexBuffer, nullptr);
-		vkFreeMemory(device, indexBufferMemory, nullptr);
+		indexBuffer.release();
+		vertexBuffer.release();
 
-		vkDestroyBuffer(device, vertexBuffer, nullptr);
-		vkFreeMemory(device, vertexBufferMemory, nullptr);
-
-		vkDestroySemaphore(device, renderFinishedSemaphore, nullptr);
-		vkDestroySemaphore(device, imageAvailableSemaphore, nullptr);
+		renderFinishedSemaphore.Destroy();
+		imageAvailableSemaphore.Destroy();
 
 		commandPool.Destroy();
 		swapChainFramebuffers.Destroy();
@@ -139,116 +160,8 @@ private:
 	}
 
 
-	void createVertexBuffer() {
-		VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
+	
 
-		VkBuffer stagingBuffer;
-		VkDeviceMemory stagingBufferMemory;
-		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
-
-		void* data;
-		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-		memcpy(data, vertices.data(), (size_t)bufferSize);
-		vkUnmapMemory(device, stagingBufferMemory);
-
-		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertexBuffer, vertexBufferMemory);
-
-		copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
-
-		vkDestroyBuffer(device, stagingBuffer, nullptr);
-		vkFreeMemory(device, stagingBufferMemory, nullptr);
-	}
-
-	void createIndexBuffer() {
-		VkDeviceSize bufferSize = sizeof(indices[0]) * indices.size();
-
-		VkBuffer stagingBuffer;
-		VkDeviceMemory stagingBufferMemory;
-		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
-
-		void* data;
-		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-		memcpy(data, indices.data(), (size_t)bufferSize);
-		vkUnmapMemory(device, stagingBufferMemory);
-
-		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indexBuffer, indexBufferMemory);
-
-		copyBuffer(stagingBuffer, indexBuffer, bufferSize);
-
-		vkDestroyBuffer(device, stagingBuffer, nullptr);
-		vkFreeMemory(device, stagingBufferMemory, nullptr);
-	}
-
-	void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory) {
-		VkBufferCreateInfo bufferInfo = {};
-		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-		bufferInfo.size = size;
-		bufferInfo.usage = usage;
-		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-		if (vkCreateBuffer(device, &bufferInfo, nullptr, &buffer) != VK_SUCCESS) {
-			throw std::runtime_error("failed to create buffer!");
-		}
-
-		VkMemoryRequirements memRequirements;
-		vkGetBufferMemoryRequirements(device, buffer, &memRequirements);
-
-		VkMemoryAllocateInfo allocInfo = {};
-		allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-		allocInfo.allocationSize = memRequirements.size;
-		allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
-
-		if (vkAllocateMemory(device, &allocInfo, nullptr, &bufferMemory) != VK_SUCCESS) {
-			throw std::runtime_error("failed to allocate buffer memory!");
-		}
-
-		vkBindBufferMemory(device, buffer, bufferMemory, 0);
-	}
-	uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
-		VkPhysicalDeviceMemoryProperties memProperties;
-		vkGetPhysicalDeviceMemoryProperties(device.GetPhysicalDevice(), &memProperties);
-
-		for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
-			if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
-				return i;
-			}
-		}
-
-		throw std::runtime_error("failed to find suitable memory type!");
-	}
-
-	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) {
-		VkCommandBufferAllocateInfo allocInfo = {};
-		allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-		allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-		allocInfo.commandPool = commandPool;
-		allocInfo.commandBufferCount = 1;
-
-		VkCommandBuffer commandBuffer;
-		vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer);
-
-		VkCommandBufferBeginInfo beginInfo = {};
-		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-
-		vkBeginCommandBuffer(commandBuffer, &beginInfo);
-
-		VkBufferCopy copyRegion = {};
-		copyRegion.size = size;
-		vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
-
-		vkEndCommandBuffer(commandBuffer);
-
-		VkSubmitInfo submitInfo = {};
-		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-		submitInfo.commandBufferCount = 1;
-		submitInfo.pCommandBuffers = &commandBuffer;
-
-		vkQueueSubmit(device.GetGraphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
-		vkQueueWaitIdle(device.GetGraphicsQueue());
-
-		vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
-	}
 
 	void createCommandBuffers() {
 		commandBuffers.resize(swapChainFramebuffers.size());
@@ -285,13 +198,13 @@ private:
 
 			vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
 
-			VkBuffer vertexBuffers[] = { vertexBuffer };
+			VkBuffer vertexBuffers[] = { *vertexBuffer };
 			VkDeviceSize offsets[] = { 0 };
 			vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffers, offsets);
 
-			vkCmdBindIndexBuffer(commandBuffers[i], indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+			vkCmdBindIndexBuffer(commandBuffers[i], *indexBuffer, 0, VK_INDEX_TYPE_UINT16);
 
-			vkCmdDrawIndexed(commandBuffers[i], static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+			vkCmdDrawIndexed(commandBuffers[i], static_cast<uint32_t>(indexBuffer->size()), 1, 0, 0, 0);
 
 			vkCmdEndRenderPass(commandBuffers[i]);
 
@@ -343,14 +256,8 @@ private:
 	}
 
 	void createSemaphores() {
-		VkSemaphoreCreateInfo semaphoreInfo = {};
-		semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-
-		if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphore) != VK_SUCCESS ||
-			vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphore) != VK_SUCCESS) {
-
-			throw std::runtime_error("failed to create semaphores!");
-		}
+		renderFinishedSemaphore.Create(device);
+		imageAvailableSemaphore.Create(device);
 	}
 
 	void drawFrame() {
