@@ -12,6 +12,7 @@ set(CXX_STANDARD_REQUIRED)
 	
 add_subdirectory("${PROJ_PATH}/lib/glm")
 add_subdirectory("${PROJ_PATH}/lib/glfw")
+add_subdirectory("${PROJ_PATH}/lib/tinyobjloader")
 
 message(STATUS "VULKAN_INCLUDE_DIR = ${VULKAN_INCLUDE_DIR}")
 message(STATUS "VULKAN_LIBRARY = ${VULKAN_LIBRARY}")
@@ -20,6 +21,8 @@ message(STATUS "VULKAN_LIBRARY = ${VULKAN_LIBRARY}")
 SET (INCLUDES
 	"${PROJ_PATH}/lib/glm"
 	"${PROJ_PATH}/lib/glfw/include"
+	"${PROJ_PATH}/lib/tinyobjloader"
+	"${PROJ_PATH}/lib/stb"
 	"${VULKAN_INCLUDE_DIR}"
 )
 
@@ -40,6 +43,7 @@ add_executable( ${PROJ_NAME} "${CODE_CPP}" "${CODE_HPP}" "${RESOURCES_DATA}" )
 
 target_link_libraries(${PROJ_NAME} ${VULKAN_LIBRARY}) #VULKAN_STATIC_LIBRARY
 target_link_libraries(${PROJ_NAME} glfw)
+target_link_libraries(${PROJ_NAME} tinyobjloader)
 
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT ${PROJ_NAME})
 
